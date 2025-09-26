@@ -1,0 +1,190 @@
+version: '3.8'
+
+services:
+  # База данных
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: jarvis
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: jarvis_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./shared/config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - jarvis-network
+
+  # Redis для очередей сообщений
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - jarvis-network
+
+  # API Gateway
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:jarvis_password@postgres:5432/jarvis
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+
+  # Voice Service
+  voice-service:
+    build: ./services/voice-service
+    ports:
+      - "8001:8001"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:jarvis_password@postgres:5432/jarvis
+      - MODEL_PATH=/app/models
+    volumes:
+      - ./shared/models:/app/models
+      - voice_cache:/app/cache
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+
+  # Brain Service
+  brain-service:
+    build: ./services/brain-service
+    ports:
+      - "8002:8002"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:jarvis_password@postgres:5432/jarvis
+      - MODEL_PATH=/app/models
+    volumes:
+      - ./shared/models:/app/models
+      - brain_cache:/app/cache
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+
+  # Task Service
+  task-service:
+    build: ./services/task-service
+    ports:
+      - "8003:8003"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:jarvis_password@postgres:5432/jarvis
+    volumes:
+      - /:/host:ro
+      - task_workspace:/app/workspace
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+
+  # Web Service
+  web-service:
+    build: ./services/web-service
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:jarvis_password@postgres:5432/jarvis
+      - API_GATEWAY_URL=http://api-gateway:8000
+    depends_on:
+      - api-gateway
+    networks:
+      - jarvis-network
+
+  # Code Service
+  code-service:
+    build: ./services/code-service
+    ports:
+      - "8006:8006"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:jarvis_password@postgres:5432/jarvis
+    volumes:
+      - ./:/workspace:ro
+      - code_cache:/app/cache
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+
+  # Learning Service
+  learning-service:
+    build: ./services/learning-service
+    ports:
+      - "8007:8007"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:jarvis_password@postgres:5432/jarvis
+      - MODEL_PATH=/app/models
+    volumes:
+      - ./shared/models:/app/models
+      - ./shared/memory:/app/memory
+      - learning_cache:/app/cache
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+
+  # Prometheus для мониторинга
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./shared/config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - jarvis-network
+
+  # Grafana для визуализации
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./shared/config/grafana:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - jarvis-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  voice_cache:
+  brain_cache:
+  task_workspace:
+  code_cache:
+  learning_cache:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  jarvis-network:
+    driver: bridge

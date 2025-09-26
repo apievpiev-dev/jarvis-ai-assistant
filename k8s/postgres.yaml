@@ -1,0 +1,184 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: jarvis
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          value: "jarvis"
+        - name: POSTGRES_USER
+          value: "jarvis"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: jarvis-secrets
+              key: POSTGRES_PASSWORD
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: postgres-init
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - jarvis
+            - -d
+            - jarvis
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - jarvis
+            - -d
+            - jarvis
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: postgres-init
+        configMap:
+          name: postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: jarvis
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: jarvis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: jarvis
+data:
+  init.sql: |
+    -- Jarvis AI Assistant Database Schema
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS "vector";
+    
+    -- Таблица пользователей
+    CREATE TABLE users (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        username VARCHAR(100) UNIQUE NOT NULL,
+        email VARCHAR(255) UNIQUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        settings JSONB DEFAULT '{}'
+    );
+    
+    -- Таблица сессий
+    CREATE TABLE sessions (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        session_token VARCHAR(255) UNIQUE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE
+    );
+    
+    -- Таблица команд
+    CREATE TABLE commands (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+        command_text TEXT NOT NULL,
+        command_type VARCHAR(50) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        result JSONB,
+        error_message TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        completed_at TIMESTAMP WITH TIME ZONE
+    );
+    
+    -- Таблица задач
+    CREATE TABLE tasks (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        command_id UUID REFERENCES commands(id) ON DELETE CASCADE,
+        task_type VARCHAR(100) NOT NULL,
+        task_data JSONB NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        result JSONB,
+        error_message TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        started_at TIMESTAMP WITH TIME ZONE,
+        completed_at TIMESTAMP WITH TIME ZONE
+    );
+    
+    -- Таблица обучения
+    CREATE TABLE learning_data (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        interaction_type VARCHAR(50) NOT NULL,
+        input_data JSONB NOT NULL,
+        output_data JSONB,
+        feedback_score INTEGER CHECK (feedback_score >= 1 AND feedback_score <= 5),
+        learning_vector vector(384),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+    
+    -- Таблица памяти агента
+    CREATE TABLE agent_memory (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        memory_type VARCHAR(50) NOT NULL,
+        content TEXT NOT NULL,
+        importance_score FLOAT DEFAULT 0.5,
+        access_count INTEGER DEFAULT 0,
+        last_accessed TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        expires_at TIMESTAMP WITH TIME ZONE
+    );
+    
+    -- Создание пользователя по умолчанию
+    INSERT INTO users (username, email, settings) VALUES 
+    ('jarvis', 'jarvis@localhost', '{"voice_enabled": true, "language": "ru", "auto_learning": true}');

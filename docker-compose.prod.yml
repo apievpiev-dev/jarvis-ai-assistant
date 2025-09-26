@@ -1,0 +1,327 @@
+version: '3.8'
+
+services:
+  # База данных
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: jarvis
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jarvis_secure_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./shared/config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Redis для очередей сообщений
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.25'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+
+  # API Gateway
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:${POSTGRES_PASSWORD:-jarvis_secure_password}@postgres:5432/jarvis
+      - SECRET_KEY=${SECRET_KEY:-jarvis-production-secret-key}
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Voice Service
+  voice-service:
+    build: ./services/voice-service
+    ports:
+      - "8001:8001"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:${POSTGRES_PASSWORD:-jarvis_secure_password}@postgres:5432/jarvis
+      - MODEL_PATH=/app/models
+    volumes:
+      - ./shared/models:/app/models
+      - voice_cache:/app/cache
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Brain Service
+  brain-service:
+    build: ./services/brain-service
+    ports:
+      - "8002:8002"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:${POSTGRES_PASSWORD:-jarvis_secure_password}@postgres:5432/jarvis
+      - MODEL_PATH=/app/models
+    volumes:
+      - ./shared/models:/app/models
+      - brain_cache:/app/cache
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+  # Task Service
+  task-service:
+    build: ./services/task-service
+    ports:
+      - "8003:8003"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:${POSTGRES_PASSWORD:-jarvis_secure_password}@postgres:5432/jarvis
+    volumes:
+      - /:/host:ro
+      - task_workspace:/app/workspace
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Web Service
+  web-service:
+    build: ./services/web-service
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:${POSTGRES_PASSWORD:-jarvis_secure_password}@postgres:5432/jarvis
+      - API_GATEWAY_URL=http://api-gateway:8000
+    depends_on:
+      - api-gateway
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.25'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+
+  # Code Service
+  code-service:
+    build: ./services/code-service
+    ports:
+      - "8004:8004"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:${POSTGRES_PASSWORD:-jarvis_secure_password}@postgres:5432/jarvis
+    volumes:
+      - ./:/workspace:ro
+      - code_cache:/app/cache
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Learning Service
+  learning-service:
+    build: ./services/learning-service
+    ports:
+      - "8005:8005"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:${POSTGRES_PASSWORD:-jarvis_secure_password}@postgres:5432/jarvis
+      - MODEL_PATH=/app/models
+    volumes:
+      - ./shared/models:/app/models
+      - ./shared/memory:/app/memory
+      - learning_cache:/app/cache
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Prometheus для мониторинга
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./shared/config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Grafana для визуализации
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./shared/config/grafana:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.25'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+
+  # Nginx для балансировки нагрузки
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./shared/config/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./shared/config/nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - api-gateway
+      - web-service
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+volumes:
+  postgres_data:
+  redis_data:
+  voice_cache:
+  brain_cache:
+  task_workspace:
+  code_cache:
+  learning_cache:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  jarvis-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

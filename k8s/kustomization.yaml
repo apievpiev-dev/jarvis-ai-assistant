@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: jarvis
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - volumes.yaml
+  - postgres.yaml
+  - redis.yaml
+  - api-gateway.yaml
+  - web-service.yaml
+  - code-service.yaml
+  - learning-service.yaml
+  - monitoring.yaml
+
+commonLabels:
+  app.kubernetes.io/name: jarvis
+  app.kubernetes.io/instance: jarvis
+  app.kubernetes.io/version: "1.0.0"
+  app.kubernetes.io/component: ai-assistant
+  app.kubernetes.io/part-of: jarvis-ai-assistant
+  app.kubernetes.io/managed-by: kustomize
+
+images:
+  - name: jarvis/api-gateway
+    newTag: latest
+  - name: jarvis/web-service
+    newTag: latest
+  - name: jarvis/voice-service
+    newTag: latest
+  - name: jarvis/brain-service
+    newTag: latest
+  - name: jarvis/task-service
+    newTag: latest
+  - name: jarvis/code-service
+    newTag: latest
+  - name: jarvis/learning-service
+    newTag: latest

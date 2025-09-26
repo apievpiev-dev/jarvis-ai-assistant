@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jarvis-config
+  namespace: jarvis
+data:
+  # Database Configuration
+  POSTGRES_URL: "postgresql://jarvis:jarvis_password@postgres:5432/jarvis"
+  REDIS_URL: "redis://redis:6379"
+  
+  # Model Configuration
+  MODEL_PATH: "/app/models"
+  WHISPER_MODEL: "base"
+  PHI2_MODEL: "microsoft/phi-2"
+  TTS_MODEL: "tts_models/ru/ruslan"
+  EMBEDDING_MODEL: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+  MODEL_DEVICE: "cpu"
+  MODEL_MAX_TOKENS: "2048"
+  MODEL_TEMPERATURE: "0.7"
+  
+  # Service Configuration
+  SERVICE_NAME: "jarvis"
+  SERVICE_HOST: "0.0.0.0"
+  LOG_LEVEL: "INFO"
+  DEBUG: "false"
+  
+  # Security Configuration
+  JWT_EXPIRE_HOURS: "24"
+  ALLOWED_ORIGINS: "*"
+  RATE_LIMIT_PER_MINUTE: "100"
+  
+  # Monitoring Configuration
+  PROMETHEUS_PORT: "9090"
+  GRAFANA_PORT: "3001"
+  METRICS_ENABLED: "true"
+  HEALTH_CHECK_INTERVAL: "30"
+  
+  # Jarvis Configuration
+  JARVIS_LANGUAGE: "ru"
+  AUTO_LEARNING: "true"
+  VOICE_ENABLED: "true"
+  MAX_CONCURRENT_TASKS: "10"
+  TASK_TIMEOUT: "300"
+  
+  # Web Service Configuration
+  REACT_APP_API_URL: "http://api-gateway:8000"

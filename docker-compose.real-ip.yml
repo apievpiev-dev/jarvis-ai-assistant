@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: jarvis
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: jarvis_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./shared/config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "172.30.0.2:5432:5432"
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+
+  # Redis Message Queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "172.30.0.2:6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+
+  # Simple API Service
+  simple-api:
+    build: ./services/simple-api
+    ports:
+      - "172.30.0.2:8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://jarvis:jarvis_password@postgres:5432/jarvis
+      - HOST=0.0.0.0
+      - PORT=8000
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  jarvis-network:
+    driver: bridge
